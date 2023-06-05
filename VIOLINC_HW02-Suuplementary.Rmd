@@ -1,0 +1,343 @@
+---
+title: |
+  | STATS 780
+  | Assignment 2 Supplementary Material
+author: "Charlie Violin | 400147837"
+date: "February 17, 2023"
+output: 
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: true
+bibliography: HW2.bib
+fontsize: 11pt
+geometry: margin = 1in
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+\newpage
+
+## Load Libraries & Read Data
+
+```{r}
+pacman::p_load(dplyr, magrittr, corrplot, readr, caret, class, tree, rpart,
+               rpart.plot, pROC, ROCR, glmnet, plotROC)
+```
+
+\normalsize
+
+Read data from UCI Repo and drop extra header row.
+
+\footnotesize
+```{r}
+UCI <- "https://archive.ics.uci.edu/ml/machine-learning-databases/"
+index_file <- "00547/Algerian_forest_fires_dataset_UPDATE.csv"
+download.file(paste0(UCI, index_file), destfile = "forest_fires.csv")
+ff <- read_csv("forest_fires.csv", skip = 1)
+```
+\normalsize
+## 2 - EDA
+
+In the authors work, @abid_predicting_2020, as well as on [\color{blue}data repository page\color{black}](https://archive.ics.uci.edu/ml/datasets/Algerian+Forest+Fires+Dataset++), there is a secondary table for a different Algerian region contained - this will be dropped to focus on one region.
+
+**Subset to Variables (and observations) of Interest**
+
+```{r results = 'hide'}
+ff <- ff[1:122, 4:14] # drop mentioned rows, collect subset
+dim(ff) # 122 x 11
+```
+
+**Data Structure, Types, Conversion:** All variables are presenting as character vectors, those of interest are converted to numeric with the except of the class response being converted to a factor.
+
+```{r}
+ff[, 1:10] <- apply(ff[, 1:10], 2, function(x) as.numeric(as.character(x)))
+ff <- ff %>% mutate(Classes = as.factor(Classes))
+```
+
+**Data Summary and Search for NAs** \footnotesize
+
+```{r}
+summary(ff[c("Temperature", "Rain", "Classes")]) # those of interest only
+```
+
+\normalsize
+
+**Correlation / Association** matrix made using `corrplot` package [@corrplot2021].
+
+```{r}
+cor_matrix <- cor(ff[,1:10], use = "complete.obs")
+```
+
+```{r echo=FALSE, fig.align="center", fig.cap="Correlation/Association Matrix of Alergian Forest Fire Data", out.width="50%"}
+
+corrplot(cor_matrix, type = "upper", order = "hclust",
+         tl.col = "black",tl.srt = 45)
+```
+
+**Outliers:** the following function replaces a value outside of 3 SDs of the data with the 5th or 95th percentile. The function was made with help from Dr. Jeganathan :)
+
+\footnotesize
+
+```{r}
+replaceOutliers <- function(x){
+    z_score <- scale(x)   # z-score for each obs
+    z_above <- z_score > 3  # outlier if z > 3
+    z_below <- z_score < -3    # outlier if z < -3
+    
+    if (length(z_above) > 0) { 
+        x[z_above] <- quantile(x, 0.95)}   # replace with 95%ile if z > 3
+    if (length(z_below) > 0) { 
+        x[z_below] <- quantile(x, 0.05)}  # replace with 5%ile if z < -3
+    return(x)}
+
+ff[, 1:10] <- sapply(ff[, 1:10], replaceOutliers) %>% as.data.frame()
+```
+
+\normalsize
+
+## 3 - Test/Training Set
+
+A 70/30 test-train data partition was made on the forest fire data using the `caret` package [@kuhn_caret_2022], and response variable outcome proportions compared.
+
+```{r}
+set.seed(780)
+partition <- createDataPartition(ff$Classes, p = 0.7, list = FALSE)
+train_ff <- ff[partition, ]
+test_ff <- ff[-partition, ]
+```
+
+```{r echo=FALSE}
+table(train_ff$Classes)/sum(table(train_ff$Classes))
+```
+
+## 4a - Logistic Regression
+
+Use of the `stats` package [@r_core_team_r_2022] was made in this logistic regression.
+
+```{r results = 'hide'}
+train_logit <- glm(Classes ~ ., family = binomial,  train_ff)
+final_mod <- step(train_logit) # final mod is best from train_logit
+# summary(final_mod) for full details
+```
+
+\footnotesize
+
+```{r}
+final_mod$coefficients
+```
+
+\normalsize
+
+## 4b - KNN Classification
+
+Executed with the use of *An introduction to statistical learning with applications in R* [@sohil_introduction_2022], @lateef_complete_2022, and the `caret` package [@class].
+
+\footnotesize
+
+```{r}
+set.seed(780)
+train_x <- dplyr::select(train_ff, -Classes)
+train_y <- train_ff$Classes
+test_x <- dplyr::select(test_ff, -Classes)
+test_y <- test_ff$Classes
+
+i = 1
+k_optm = 1
+for (i in 1:10) {
+    knn_mod <- knn(train_x, test_x, train_y, k = i, prob = TRUE)
+    k_optm[i] <- 100 * sum(test_y == knn_mod)/NROW(test_y)
+    k = i}
+```
+
+```{r echo=FALSE, fig.align="center", fig.cap="Error Rate of Different k's", out.width="70%"}
+plot((100 - k_optm)/100, type = "b", xlab = "k")
+```
+
+\normalsize
+
+## 4c - Decision Tree
+
+Made using the `tree` [@tree], `rpart` [@rpart], and `rpart.plot` [@rpartplot] packages.
+
+```{r}
+tree_ff <- tree(Classes ~ ., train_ff)
+tree_pred <- predict(tree_ff, test_ff, type = "class")
+
+set.seed(780)
+cv_treeff <- cv.tree(tree_ff, FUN = prune.misclass)
+```
+
+```{r echo=FALSE, out.width="70%", fig.cap="Cross Validation Error Rate as a size of the Tree", fig.align='center'}
+plot(cv_treeff$size, cv_treeff$dev, type = "b") 
+```
+
+Prune to best number of terminal nodes, 2.
+
+```{r}
+prune_ff = prune.misclass(tree_ff, best = 2)
+prune_pred <- predict(prune_ff, test_ff, type = "class")
+```
+
+```{r echo=FALSE, out.width="60%", fig.cap="Pruned Decision Tree", fig.align='center'}
+plot(prune_ff)
+text(prune_ff, pretty = 0)
+```
+
+## 5 - Sensitivity & Specificity Analysis
+
+### Logistic Regression
+
+Confusion Matrix
+```{r echo=FALSE}
+pre_prob1 <- predict(train_logit, newdata = test_ff[, -11], type = "response")
+df <- tibble(pre_prob1 = pre_prob1, Y = test_ff$Classes)
+cutoff <- 0.5
+df <- mutate(df, Class_pred = ifelse(pre_prob1 > cutoff, "not fire", "fire"))
+table(df$Y, df$Class_pred) # confusion matrix
+```
+
+Mis-Classification Rate
+```{r echo=FALSE}
+# mis-classification rate
+log_misclass <- 1-sum(diag(table(df$Y, df$Class_pred)))/sum(table(df$Y, df$Class_pred))
+print(round(log_misclass, 4))
+```
+
+Cutoff Threshold and S&S
+```{r out.width="70%", fig.cap="ROC for Logistic Regression Cutoff", fig.align='center'}
+pROC_graph <- roc(df$Y, df$pre_prob1, ci = T, ci.a = 0.9, plot = T,
+                  auc.polygon = T, max.auc.polygon = T, grid = T, print.auc = T,
+                  show.thres = T)
+## optimal cutoff
+logr_best_ss <- coords(pROC_graph, "best")
+logr_best_ss
+```
+
+### KNN Classification
+
+Confusion Matrix
+```{r echo=FALSE}
+table(knn_mod, test_y) # confusion matrix
+```
+
+Mis-Classification Rate
+```{r echo=FALSE}
+knn_misclass <- 1 - mean(knn_mod == test_y) # mis-classification rate @ k =5
+print(round(knn_misclass, 4))
+```
+
+S&S
+```{r echo=FALSE}
+sens_knn <- 1 - (table(knn_mod, test_y)[2, 1]) / sum(table(knn_mod, test_y)[2,])
+spec_knn <- 1 - (table(knn_mod, test_y)[1, 2]) / sum(table(knn_mod, test_y)[1,])
+print(paste("Sensitivity: ", round(sens_knn, 3), 
+             "      Specificity: ", round(spec_knn, 3)))
+```
+
+### Decision Tree
+
+Confusion Matrix
+```{r echo=FALSE}
+table(prune_pred, test_y)
+```
+
+Mis-Classification Rate
+```{r echo=FALSE}
+misclass_dt <- 1 - mean(prune_pred == test_y)
+print(round(misclass_dt, 4))
+```
+
+S&S
+```{r echo=FALSE}
+sens_tree <- round(1 - (table(prune_pred, test_y)[2, 1]) /
+                  sum(table(prune_pred, test_y)[2,]), 3)
+spec_tree <- round(1 - (table(prune_pred, test_y)[1, 2]) /
+                  sum(table(prune_pred, test_y)[1,]), 3)
+print(paste0("Sensitivity: ", sens_tree, "      Specificity: ", spec_tree))
+```
+
+Visualization to compare and contrast the three models' mis-classification rate, sensitivity, and specificity.
+```{r fig.align='center', echo=FALSE, fig.cap="Visualization of Model Performance Measures", out.width="80%"}
+model_names <- c("Logistic Regression", "Logistic Regression", 
+                 "Logistic Regression", "KNN Classification", 
+                 "KNN Classification", "KNN Classification", "Decision Tree",
+                 "Decision Tree", "Decision Tree")
+sens_spec_error <- rep(c("Sensitivity", "Specificity",
+                         "Mis-Classification Rate"), 3)
+nums <- c(logr_best_ss[,3], logr_best_ss[,2], log_misclass, sens_knn, spec_knn,
+          knn_misclass, sens_tree, spec_tree, misclass_dt)
+
+df <- data.frame(model_names, sens_spec_error, nums)
+
+ggplot(df, aes(sens_spec_error, nums, fill = model_names)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    xlab("Model Information Type") + ylab("Absolute Value") +
+    theme(plot.title = element_text(face = "bold", size = "12")) +
+    scale_fill_manual("Model", values = c("grey", "orange2", "skyblue3")) +
+    theme(legend.title = element_text(face = "bold", size = "10"))
+```
+
+## 6 - Logistic Regression with Shrinkage (LASSO)
+
+```{r}
+set.seed(780)
+X <- model.matrix(Classes ~ ., ff)[,-1]
+Y <- ff$Classes
+
+cv_lasso <- cv.glmnet(X[partition, ], Y[partition], family = "binomial",
+                      alpha = 1, standardize = TRUE)
+test_pred_log_odds <- predict(cv_lasso, newx = X[-partition, ],
+                              s = "lambda.1se")
+test_pred_prob <- exp(test_pred_log_odds)/(1 + exp(test_pred_log_odds))
+df_lasso_test <- tibble(pre_prob = test_pred_prob,
+                        y = slice(ff, -partition) %>% pull(Classes))
+```
+
+Best $\lambda$ value.
+The minimum lambda is close to zero, 1st standard error rules used for lambda.
+```{r echo=FALSE}
+print(paste("Minimum Lambda:", round(cv_lasso$lambda.min, 4)))
+print(paste("1st Standard Error Lambda:", round(cv_lasso$lambda.1se, 4)))
+```
+
+New Regression Coefficients using `lambda.1se`
+\footnotesize
+```{r}
+predict(cv_lasso, type = "coefficients", s = cv_lasso$lambda.1se)
+```
+
+\normalsize
+ROC Graph
+```{r out.width="70%", fig.cap="ROC for Logistic Regression with LASSO", fig.align='center'}
+pROC_graph <- roc(df_lasso_test$y,df_lasso_test$pre_prob, smoothed = T, ci = T,
+                  ci.alpha = 0.9, strat = F, plot = T, auc.polygon = T,
+                  max.auc.polygon = T, grid = T, print.auc = T, show.thres = T)
+proc_best <- coords(pROC_graph, "best")
+    # threshold for next chunk and print out to follow
+```
+
+Confusion Matrix and S&S Analysis with Threshold cutoff set at 0.5606
+```{r}
+Class_test_lasso <- mutate(df_lasso_test, Class_pred = ifelse(
+    pre_prob > proc_best[,1], levels(ff$Classes)[2], levels(ff$Classes)[1]))
+```
+
+```{r echo=FALSE}
+tab <- table(pull(df_lasso_test, y), pull(Class_test_lasso, Class_pred))
+tab
+coords(pROC_graph, "best")
+```
+
+Mis-Classification Rate
+```{r echo=FALSE}
+round(1 - sum(diag(tab))/(sum(tab)), 4)
+```
+
+
+\newpage
+
+## References

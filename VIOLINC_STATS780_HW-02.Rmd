@@ -1,0 +1,88 @@
+---
+title: | 
+  | Algerian Forest Fires
+  | STATS 780, Homework Assignment 2
+author: "Charlie Violin | 400147837"
+date: "February 17, 2023"
+output: 
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: true
+    toc_depth: 3
+bibliography: HW2.bib
+fontsize: 11pt
+geometry: margin = 1in
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+\newpage
+
+### 1 - Introduction
+
+|       The data set has been sourced from the [\color{blue}UCI Machine Learning Repository\color{black}](https://archive.ics.uci.edu/ml/index.php) and relates to [\color{blue}Algerian Forest Fire's\color{black}](https://archive.ics.uci.edu/ml/datasets/Algerian+Forest+Fires+Dataset++). The author's of the data intended to predict the occurrence of wildfires in Algeria [@abid_predicting_2020]. It is fit for classification because it has a binary response outcome from multiple quantitative predictors to classify the occurrence of wildfires.
+
+### 2 - EDA
+
+|       Variables include day, month, and year as well as the temperature in $^{\circ}$Celsius, relative humidity (%), wind speed (km/h), rain (mm), and six fire index measurements. All are predictors in the categorical responses of fire or not fire. The omitted variables will be calendar classifications.
+
+|       There are 244 observations of 14 variables (1 is the response), all variables of interest are converted to numeric, while the `Classes` response is factored. Variables of interest are subsetted, one of two Algerian regions (Bejaia) is isolated. The resulting tibble contains 11 variables and 122 observations. Summary statistics show 59 instances of 'fire', and 63 'not fire' occurrences. Temperatures recorded were between 22-37$^{\circ}$, notably rainfall has a very high maximum compared to the 3rd quartile - 16.8mm with a 3rd quartile of 0.5mm.
+
+|       **Correlation and association analysis** shows that wind speed (`Ws`) is not or very weekly associated with all variables, rain and relative humidity (`RH`) are mostly weak or moderate and negatively associated to all others. Temperature and all fire indicator 'code' or 'index' measures (`DC`, `DMC`, `BUI`, `FFMC`, `ISI`, and `FWI`) are positively associated in varying degrees. Refer to Figure 1 in the Supplementary Material for further information. No **missing values** were found.
+
+|       **Outliers** were identified outside 99.7% of the distribution (assumed normal) and replaced with the 5^th^ or 95^th^ %ile values based on positioning. This data set is small and using a z-score cutoff of 3 SDs helps to reduce the number of imputations so to not significantly change the data.
+
+### 3 - Stratification of Testing/Training Groups
+
+|       A 70/30 data partition was made on the forest fire data - test and train sets were created into their respectively indices, and the response variable outcome proportions were \~48.3% 'not fire' and \~51.7% 'fire' across the original, training, and test sets.
+
+### 4a - Logistic Regression
+
+**(i) Transformation or Subset of Predictors:** In a repeating forward-backward approach, the best logistic regression was found with predictors `DMC`, `DC`, and `FWI` as this produced the lowest AIC.\
+**(ii) Tuning Parameters:** No tuning parameters to be made in logistic regression.\
+**(iii) Most Important Predictor:** `FWI`, as this has the largest absolute coefficient.\
+**(iv) Regression Coefficient of Most Important Predictor:** -150.612, meaning that `FWI` reduces the log odds of `not fire` (increases the odds of `fire`) when a one unit increase occurs while all others are held constant.
+
+### 4b - KNN Classification
+
+**(i) Transformation or Subset of Predictors:** Separate matrices containing the predictors of the training and test data were created, followed by the creation of a vector of the outcome labels of the training set [@sohil_introduction_2022].\
+**(ii) Tuning Parameters:** k = 5, error rates at k = 5 & 6 were equal, however at k = 6 more variability may occur (see Supplementary Material Figure 2 for error rates).\
+**(iii) Most Important Predictor:** Not applicable for KNN-Classification
+
+### 4c - Decision Tree
+
+**(i) Transformation or Subset of Predictors:** No transformations/subsets were applied.\
+**(ii) Tuning Parameters:** The number of nodes was found using `cv.tree()`, where the smallest cross-validation error was visualized in Supplementary Material Figure 3, and found to be where the tree contained 2 nodes. The decision tree is visualized in Supplementary Material Figure 4.\
+**(iii) Most Important Predictor:** `FFMC`, as it is the first (and only) split.
+
+### 5 - S&S + Performance of Classifiers
+
+Refer to confusion matrices and mis-classification rates in Supplementary Material in the Sensitivity & Specificity Analysis section. Additionally, Figure 6 from the Supplementary Material should be referenced throughout this section.
+
+|       In**logistic regression** the mis-classification rate is lowest - 2.86%. Sensitivity and specificity analysis found a cutoff slightly larger than 0.5 with sensitivity = 0.944 and specificity = 1 (best of the classifiers) as all 'fire' were correctly identified with one 'not fire' mis-classified.
+
+|       For **KNN classification**, no such cutoff threshold can be discovered for binary classification, its mis-classification rate is 5.71% with sensitivity = 0.944 (tied with logistic regression) and specificity = 0.941 as there was one mis-classification for each response.
+
+|       Lastly, the **decision tree** method had the highest mis-classification rate (8.57%) and sensitivity (1) as it correctly identified all 'not fire', but had the lowest specificity of 0.85. Three 'fire' were classified as 'not fire'. A cutoff threshold cannot be discovered.
+
+### 6 - Logistic Regression with Shrinkage (LASSO)
+
+**(i) Best Shrinkage Value:** The minimum lambda was close to 0 so the 1st standard error rule was chosen. Accordingly, the best shrinkage value is $\lambda = 0.0233$ when LASSO regression is performed.
+
+**(ii) Compare Interpretation:** Under LASSO, the regression model makes use of only two variables; `FFMC` and `ISI`, creating sparsity. Both variables are unique from initial logistic regression. Coefficients = -0.028 and -1.132, respectively, the intercept remains positive. This indicates that for a 1-unit increase in FFMC, there is a 0.02 decrease `(1 - exp(-.028))` in the odds away from 'not fire' (fire is default outcome), for ISI a 0.68 change in the odds of a 'not fire' outcome is seen.  
+
+**(iii) Compare Performance:** With shrinkage the hold-out set cutoff threshold is larger than logistic regression at 0.558. Specificity decreased from 1 to 0.941 while sensitivity increased from 0.944 to 1. The mis-classification rate however, remained the same at 2.86%. This indicates that all non-forest fires were correctly predicted, however, due to the decrease in specificity, the false positive rate (positive being 'not fire') increased and predicted one forest fire as not occurring.
+
+### 7 - Final Conclusions
+
+|       From my analysis of the Algerian Forest Fire data set, a logistic regression containing the variables `DMC`, `DC`, and `FWI` can be used to achieve high accuracy in the classification of forest fires in Bejaia, Algeria. This model accurately predicts the occurrence of all true forest fires (sensitivity = 1) while conservatively estimating few non-forest fire conditions as fires (specificity = 0.944). This model could work to evacuate people to safety while readying fire warden teams prior to the ignition of a forest fire.  
+
+|       Surprisingly, a days' temperature, relative humidity, wind speed, and rain fall were not of significance in the prediction of forest fires in the Bejaia region of Algeria. I would conclude and advise my client to ensure accurate and refined measures for all 6 fire index measurements (`DC`, `DMC`, `BUI`, `FFMC`, `ISI`, and `FWI`). As 5 of the 6 were included among various models (logistic regression (+ with LASSO) and decision tree) that accurate-maintained recording could help improve model prediction and ultimately make a commercially available illustration (a decision tree) for the prediction of forest fires in Algeria.
+
+\newpage
+
+### References
