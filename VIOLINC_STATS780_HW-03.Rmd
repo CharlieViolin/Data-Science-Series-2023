@@ -1,0 +1,307 @@
+---
+title: |
+  | Homework Assignment 3: Clustering
+  | STATS/CSE 780
+author: "Charlie Violin | 400147837"
+date: "March 24, 2023"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+bibliography: HW3.bib
+fontsize: 11pt
+geometry: margin = 1in
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+\newpage
+
+# 1 - Introduction & EDA
+
+|       The data set has been sourced from the [\color{blue}UCI Machine Learning Repository\color{black}](https://archive.ics.uci.edu/ml/index.php) and relates to the [\color{blue}Seeds Data Set\color{black}](http://archive.ics.uci.edu/ml/datasets/seeds). The author's of the data intended to propose a novel and effective technique for a more proper categorization of wheat - normally based on size, shape, and colour due to the heritability of characteristics [@kacprzyk_complete_2010]. It is fit for clustering because there are three types of wheat seeds in question; Kama, Rosa, and Canadian which are in need of identification of homogeneous character identification and encoded as 1, 2, and 3, respectively in the data set.
+
+|       Exploratory data analysis finds 210 observations across 7 double precision-numeric variables, with an 8^th^ variable as wheat variety. The variables describe geometric measures of a wheat grain seed; `Area`, `Perimeter`, `Compactness`, `length`, `width`, the asymmetry coefficient of a grain (`asym_coef`), and the length of kernel groove (`kernel_groove`). All measurement units are in $mm$ except for area in $mm^2$, compactness is dimensionless as $C = 4*\pi*Area/Perimeter^2$, and asymmetric coefficient as such. Area spans a range of about 10mm^2^ while perimeter has a narrower range contained within the absolute value range of area (10.59-21.18mm). Compactness has a narrow range all below 1, the range of values in length are roughly between 5 and 7mm whereas width is smaller between 2.6 and 4.1mm. The asymmetric coefficient varies between 0.7 and a maximum of 8.456, and finally, groove length is contained in a 2mm range around 5.5mm.
+
+|       No missing values were found. Only five potential outliers were found across two variables using a boxplot (see Supplementary Material Figure \ref{fig:boxplots}), due to the extremely low occurrence of outliers they were left as is. Weak to moderate negative associations are seen between all variables (except `length_groove`) and the asymmetric coefficient. Wheat variety was not included in the correlation analysis. Positive moderate associations are present between compactness and all other variables, the remaining associations are all strong and positive (see Supplementary Material Figure \ref{fig:corr_ass}).
+
+|       A list of wheat labels was created for the outcome labeling of clustering, as well as the distance measures, and data was scaled prior to clustering or principal component analysis in order to have all variables on the same scale with the same standard deviation.
+
+# 2 - Clustering
+## (a) Hierarchical Clustering
+
+|       After hierarchical clustering is applied, investigation of the best $k$ can is completed.  Supplementary Material Figure \ref{fig:avg_sil_hc} visualizes the average silhouette width at varying values of $k$, where the best $k=2$. However, the adjusted rand index (see Supplementary Material Table 1) finds that when $k=3$ the hierarchical clustering model is most similar to the labels of the original data set (0.686). As there are three varieties of wheat needing identification, we will continue with three clusters for the dendrogram produced in Supplementary Material Figure \ref{fig:comp_dendro}. The results of complete hierarchical clustering where $k=3$, finds that all Canadian wheat observations are grouped into the third cluster and almost all of the Rosa variety are placed in cluster two. Two-thirds of the Kama wheat are in cluster one, where most of the remaining are in the third cluster followed by the second (see Supplementary Material Table 2). This indicates that their could be some similarity in the characteristics of Kama and Canadian wheat varieties based on the variables here.
+
+## (b) K-Means Clustering
+
+|       K-means clustering is applied over various values of $k$ and average silhouette plots are displayed in Supplementary Material Figure \ref{fig:avg_sil_km} with 20 random initial configurations. The best clustering from the average silhouette plots is when $k=2$. However, after computing the adjusted rand index in Supplementary Material Table 3 for the same $k$'s, a different result appears where the best comparison to the given labels (0.773) is when $k=3$. This would be consistent with the anticipated number of clusters, three. The outcome of applying k-means clustering to the seeds data with three clusters is displayed in Supplementary Material Table 4 where Kama wheat are mostly contained in cluster three, Rosa mostly in cluster two, and the same for Canadian wheat in cluster one.
+
+## (c) PCA (followed by K-Means Clustering)
+
+|       The principal components (PCs) of the seeds data set are calculated using `prcomp()`, which is then made of use in calculating the variance and proportion of variance explained (PVE) in each PC. The first three PCs individually account for 71.8%, 17.1%, and 9.7% of variance explained each and total nearly 99% of variance explained (see Supplementary Material Figure \ref{fig:pve} and \ref{fig:cum_pve}). As an additional PC would decrease the model interpretability for less than a 1% increase in PVE three PCs are used for subsequent k-means clustering.  
+
+|       Once again, 20 initial random cluster configurations were computed over different values of $k$, this time on the first three principal components. The best average silhouette plot indicated an optimal $k=2$ (see Supplementary Material Figure \ref{fig:avg_sil_pcakm}), different than number of clusters in the seeds data set. However, the adjusted rand index sees the output of k-means clustering being most comparable to the given labels (0.785) with three clusters in Supplementary Material Table 5. Final clustering with the first three PCs and $k=3$ is completed. Once again, the Kama wheat variety are mostly contained in cluster three, Rosa mostly in cluster two, and the third cluster seeing nearly all of the Canadian wheat variety (see Supplementary Material Table 6).
+
+# 3 - Comparisons
+
+|       The clustering results obtained are all most comparable to the given labels of the seeds data set when three clusters are chosen to group the data. Use of three clusters provides adjusted rand index scores of 0.686, 0.773, and 0.785, respectively, for their completion order in this work where PCA prior to k-means clustering was most comparable to the given labels. This is indicative of confirmation that there truly exists three distinct variety of wheat in the given data set and that no further main clusters exist based on the the geometric features of wheat grains here.
+
+|       Interestingly, plain k-means clustering and that post PCA differ in their comparability to the given labels by one data point assignment. In Supplementary Material Tables 4 and 6, the Canadian wheat variety is grouped mainly in the first cluster with few in the third, 66 and four, respectively. The Rosa variety contains 65 grains in the second and five grains in the third cluster. Only the Kama variety sees an improvement in k-means following PCA. Its six, two, and 62 membership among the first through third clusters, respectively, improves to five, two, and 63 with prior PCA.
+
+|       Lastly, the comparability between wheat grain varieties and given labels differs between the two - hierarchical and k-means, clustering. Hierarchical is superior in identifying 100% of the given labels for Canadian wheat grain and 66/70 Rosa grains. Both k-means applications similarly identified the Kama wheat grain variety as previously stated above. This may provide evidence that the Rosa and Canadian varieties of wheat grain are more distinct in their linkage than the Kama grain is to either one.
+
+\newpage
+# Supplementary Material
+
+**Load Libraries**
+```{r}
+pacman::p_load(magrittr, tidyverse, corrplot, cluster, factoextra, pdfCluster,
+               cowplot, knitr)
+```
+
+**Read in Data & Set Column Names Appropriately**  
+The data set contains a labeled output column of wheat type, it is only used by @kacprzyk_complete_2010 for scientific testing of their model, and will be used here for comparability with the produced models.
+```{r}
+seeds <- as_tibble(read.table("seeds_dataset.txt"))
+colnames(seeds) <- c("Area", "Perimeter", "Compactness", "length", "width", 
+                     "asym_coef", "length_groove", "variety")
+seeds$variety <- factor(seeds$variety, labels = c("Kama", "Rosa", "Canadian"))
+```
+
+## EDA
+**Data Summary/Structures and Search for NAs**
+\footnotesize
+```{r echo=FALSE}
+seeds
+summary(seeds)
+```
+\normalsize
+**Outliers**  
+Only five outliers were found, three in compactness and two in asymmetric coefficient. They were not removed or replaced due to their extremely low occurrence, 5/1470 cells.
+```{r boxplots, echo=FALSE, fig.align="center", fig.cap="Boxplots of Each Variable in Seeds", out.width="75%"}
+par(mfrow = c(3, 3), mar = c(0.5, 1, 2, 2))
+boxplot(seeds$Area, main = "Area (mm^2)")
+boxplot(seeds$Perimeter, main = "Perimeter (mm)")
+boxplot(seeds$Compactness, main = "Compactness")
+boxplot(seeds$length, main = "length (mm)")
+boxplot(seeds$width, main = "width (mm)")
+boxplot(seeds$length_groove, main = "length_groove (mm)")
+boxplot(seeds$asym_coef, main = "asym_coef")
+```
+\newpage
+**Correlation / Association**
+```{r corr_ass, echo=FALSE, fig.align="center", fig.cap="Correlation/Association Matrix of Seeds Data", out.width='55%'}
+cor_matrix <- cor(seeds[1:7], use = "complete.obs")
+corrplot(cor_matrix, type = "upper", order = "hclust",
+         tl.col = "black",tl.srt = 45)
+```
+## Pre-Processing
+
+Use of scaled data, distances, and labels are used in hierarchical and k-means clustering.
+```{r}
+seeds.labs <- seeds$variety
+seeds.data <- scale(seeds[, 1:7])
+seeds_dist <- dist(seeds.data)
+```
+
+## Hierarchical Clustering
+Complete Hierarchical Clustering is applied.
+```{r}
+hc.out <- hclust(seeds_dist) 
+```
+
+**Average Silhouette Widths**  
+Assessment of the best average silhouette width using the `fviz_silhouette()` function for complete linkage and grid of plots computed. The highest average indicates the best number of clusters - the least amount of negative silhouette widths is preferred.
+```{r results='hide', echo = TRUE}
+sil_grid <- plot_grid(fviz_silhouette(hcut(seeds.data, 2)),
+                   fviz_silhouette(hcut(seeds.data, 3)),
+                   fviz_silhouette(hcut(seeds.data, 4)),
+                   fviz_silhouette(hcut(seeds.data, 5)), nrow = 2)
+```
+
+```{r avg_sil_hc, echo=FALSE, fig.align='center', fig.cap='Silhouette Plots for Varying K (Complete Linkage Hierarchical Clustering)', out.width="90%"}
+sil_grid
+```
+
+
+**Adjusted Rand Index** for varying k, hierarchical clustering. When $k=3$, the hierarchical clustering is closest to the membership given in the original data set.
+```{r echo=FALSE}
+adj_rand_index <- c(round(adj.rand.index(cutree(hc.out, 2),
+                                         as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(cutree(hc.out, 3),
+                                         as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(cutree(hc.out, 4),
+                                         as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(cutree(hc.out, 5),
+                                         as.numeric(as.factor(seeds.labs))), 3))
+k <- c(2, 3, 4, 5)
+```
+
+```{r adj_rand_hc, echo=FALSE, results='asis'}
+kable(data.frame(adj_rand_index, k), caption = "Adjusted Rand Index - Hierarchical Clustering.")
+```
+
+Final hierarchical clustering is completed with $k=3$ and wheat variety cluster assignments seen.  
+```{r}
+hc.clusters <- cutree(hc.out, 3) 
+```
+
+```{r comp_dendro, echo=FALSE, fig.align="center", fig.cap="Seeds Dendrogram with 3 Clusters via Complete Linkage"}
+plot(hclust(seeds_dist), xlab = "", sub = "", ylab = "", labels = seeds.labs,
+     main = "Complete Linkage", hang = -1, cex = 0.5)
+rect.hclust(hclust(seeds_dist), k = 3, border = c(3, 4, 7))
+abline(h = 5.7, col = "red")
+```
+
+```{r hclust_tab, echo=FALSE, results='asis'}
+kable(table(hc.clusters, seeds.labs), caption = "Cluster Assignment of Complete Hierarchical Clustering (k = 3).")
+```
+
+## K-Means Clustering
+
+**Average Silhouette Widths**  
+20 initial configurations of random cluster assignment are chosen, where the best outcome is reported and applied to the seeds data with different values of $k$. Average silhouette widths are computed and visualized using the `fviz_silhouette()` function. The highest average indicates the best number of clusters - the least amount of negative silhouette widths is preferred.
+\footnotesize
+```{r results='hide'}
+set.seed(780)
+
+km.out2 <- kmeans(seeds.data, 2, nstart = 20)
+km.out3 <- kmeans(seeds.data, 3, nstart = 20)
+km.out4 <- kmeans(seeds.data, 4, nstart = 20)
+km.out5 <- kmeans(seeds.data, 5, nstart = 20)
+
+sil_km2 <- silhouette(km.out2$cluster, seeds_dist)
+sil_km3 <- silhouette(km.out3$cluster, seeds_dist)
+sil_km4 <- silhouette(km.out4$cluster, seeds_dist)
+sil_km5 <- silhouette(km.out5$cluster, seeds_dist)
+
+sil_grid <- plot_grid(fviz_silhouette(sil_km2), fviz_silhouette(sil_km3),
+                   fviz_silhouette(sil_km4), fviz_silhouette(sil_km5), nrow = 2)
+```
+
+\normalsize
+```{r avg_sil_km, echo=FALSE, fig.align='center', fig.cap='Silhouette Plots for Varying K (K-Means Clustering)', out.width="90%"}
+sil_grid
+```
+
+**Adjusted Rand Index** for varying k, k-means clustering. When $k=3$, k-means clustering is most comparable to the given labels.
+```{r echo=FALSE}
+adj_rand_index <- c(round(adj.rand.index(km.out2$cluster,
+                                         as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(km.out3$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(km.out4$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(km.out5$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3))
+k <- c(2, 3, 4, 5)
+```
+
+```{r adj_rand_km, echo=FALSE, results='asis'}
+kable(data.frame(adj_rand_index, k), caption = "Adjusted Rand Index - K-Means Clustering.")
+```
+
+K-Means Clustering is performed with the final cluster assignment at $k=3$ - produced using 20 random initial cluster configurations and wheat variety cluster assignments seen.
+```{r}
+set.seed(780)
+km.out <- kmeans(seeds.data, 3, nstart = 20)
+km.clusters <- km.out$cluster
+```
+
+```{r km_out_table, echo=FALSE, results='asis'}
+kable(table(km.clusters, seeds.labs), caption = "Cluster Assignment of K-Means Clustering (k = 3).")
+```
+
+## PCA (followed by K-Means)
+
+PCA is performed on the seeds data which has already been scaled in the pre-processing step.
+```{r}
+pca.out <- prcomp(seeds.data)
+```
+
+```{r pc_investigate_1, echo=FALSE, fig.align='center', fig.cap='Pricipal Componets 1 and 2', out.width="75%"}
+#plot(pca.out$x[, 1:2], col = seeds.labs, pch = 19, xlab = "Z1", ylab = "Z2")
+```
+
+```{r pc_investigate_2, echo=FALSE, fig.align='center', fig.cap='Pricipal Componets 1 and 3', out.width="75%"}
+#plot(pca.out$x[, c(1, 4)], col = seeds.labs, pch = 19, xlab = "Z1", ylab = "Z3")
+```
+
+**Choosing the Number of Principal Components**  
+Proportion of Variance Explained (PVE) and Cumulative PVE are computed and displayed. The following graphs can be used to subjectively select an appropriate number of principal components to conduct k-means clustering.
+```{r}
+pca.var <- pca.out$sdev^2
+pve <- pca.var/sum(pca.var)
+```
+
+```{r pve, echo=FALSE, fig.align='center', fig.cap='Proportion of Variance Explained from Prinicpal Components', out.width="60%"}
+plot(pve, type = 'o',  col = 'red', las = 1, xlab = "Principal Component", 
+     ylab = "Proportion of Variance Exaplined (PVE)", ylim = c(0, 0.80))
+```
+
+```{r cum_pve, echo=FALSE, fig.align='center', fig.cap='Cumulative PVE from Prinicpal Components', out.width="60%"}
+plot(cumsum(pve), type = 'o',  col = 'blue', las = 1, 
+     xlab = "Principal Component", ylab = "Cumulative PVE", ylim = c(0.5,1))
+```
+
+The first three principal components explain over 98% of the variance.  
+  
+**Average Silhouette Widths**  
+20 initial configurations of random cluster assignment are chosen, where the best outcome is reported and applied to the seeds data with different values of $k$ on the first three principal components. Average silhouette widths are computed and visualized using the `fviz_silhouette()` function. The highest average indicates the best number of clusters - the least amount of negative silhouette widths is preferred.
+
+\footnotesize
+```{r results='hide'}
+set.seed(780)
+
+pca.km2 <- kmeans(pca.out$x[, 1:3], 2, nstart = 20)
+pca.km3 <- kmeans(pca.out$x[, 1:3], 3, nstart = 20)
+pca.km4 <- kmeans(pca.out$x[, 1:3], 4, nstart = 20)
+pca.km5 <- kmeans(pca.out$x[, 1:3], 5, nstart = 20)
+
+sil_pcakm2 <- silhouette(pca.km2$cluster, seeds_dist)
+sil_pcakm3 <- silhouette(pca.km3$cluster, seeds_dist)
+sil_pcakm4 <- silhouette(pca.km4$cluster, seeds_dist)
+sil_pcakm5 <- silhouette(pca.km5$cluster, seeds_dist)
+
+sil_grid_pcakm <- plot_grid(fviz_silhouette(sil_pcakm2), fviz_silhouette(sil_pcakm3),
+                   fviz_silhouette(sil_pcakm4), fviz_silhouette(sil_pcakm5), nrow = 2)
+```
+
+\normalsize
+```{r avg_sil_pcakm, echo=FALSE, fig.align='center', fig.cap='Silhouette Plots for Varying K on First Three PCs', out.width="90%"}
+sil_grid_pcakm
+```
+**Adjusted Rand Index** for varying k, k-means clustering post PCA (PC = 3). When $k=3$, k-means clustering is most comparable to the given labels.
+```{r echo=FALSE}
+adj_rand_pcakm <- c(round(adj.rand.index(pca.km2$cluster,
+                                         as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(pca.km3$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(pca.km4$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3),
+                    round(adj.rand.index(pca.km5$cluster,
+                                       as.numeric(as.factor(seeds.labs))), 3))
+k <- c(2, 3, 4, 5)
+```
+
+```{r adj_rand_pckm, echo=FALSE, results='asis'}
+kable(data.frame(adj_rand_pcakm, k),
+      caption = "Adjusted Rand Index - K-Means Clustering Post PCA (PC = 3).")
+```
+
+
+K-Means Clustering is performed on the first three principal components with the final cluster assignment at $k=3$ - produced using 20 random initial cluster configurations and wheat variety cluster assignments seen.
+```{r}
+set.seed(780)
+pca.km <- kmeans(pca.out$x[, 1:3], 3, nstart = 20)
+```
+
+```{r pcakm_out_table, echo=FALSE, results='asis'}
+kable(table(pca.km$cluster, seeds.labs), caption = "Cluster Assignment of K-Means Clustering on First Three PCs (k = 3).")
+```
+
+\newpage
+# References
