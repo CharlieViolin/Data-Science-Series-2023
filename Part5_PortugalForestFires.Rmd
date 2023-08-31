@@ -1,0 +1,1097 @@
+---
+title: "Predicting the Burned Area of Forest Fires in Portugal"
+subtitle: "Charlie Violin | 400147837 | MSc. eHealth Student"
+author: "Department of Health Research Methods, Evidence, & Impact, McMaster University  \nCSE/STATS 780: Data Science  \nDr. Pratheepa Jeganathan "
+date: "April 17, 2023"
+output:
+  pdf_document:
+    includes:
+      in_header: header.tex
+    toc: yes
+bibliography: Report.bib
+fontsize: 11pt
+geometry: margin = 1in
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r include=FALSE}
+pacman::p_load(dplyr, readr, magrittr, ggplot2, caret, randomForest)
+```
+
+```{r include=FALSE}
+UCI <- "https://archive.ics.uci.edu/ml/machine-learning-databases/"
+index_file <- "forest-fires/forestfires.csv"
+download.file(paste0(UCI, index_file), destfile = "forest_fires.csv")
+ff <- read.csv("forest_fires.csv")
+```
+
+```{r include=FALSE}
+ff$month <- factor(ff$month, c("jan", "feb", "mar", "apr", "may", "jun",
+                                  "jul", "aug", "sep", "oct", "nov", "dec"))
+ff$day <- factor(ff$day,
+                 levels = c("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
+
+ff$X <- as.factor(ff$X)
+ff$Y <- as.factor(ff$Y)
+
+replaceOutliers <- function(x){
+    z_score <- scale(x)   # z-score for each obs
+    z_above <- z_score > 3  # outlier if z > 3
+    z_below <- z_score < -3    # outlier if z < -3
+    
+    if (length(z_above) > 0) { 
+        x[z_above] <- quantile(x, 0.95)}   # replace with 95%ile if z > 3
+    if (length(z_below) > 0) { 
+        x[z_below] <- quantile(x, 0.05)}  # replace with 5%ile if z < -3
+    return(x)}
+
+ff[, c(5:13)] <- sapply(ff[, c(5:13)], replaceOutliers) %>%
+    as.data.frame()
+```
+
+\newpage
+
+# Introduction & Background
+
+|       Forest fires cause large scale environmental and ecological impacts along with cases of large scale human suffering. Most recently did a human caused wildfire destroy about 90% of the town of Lytton, British Columbia in 2021 [@judd_cause_2021] and another causing upwards of 1.4 billion dollars in economic impact in 2016 [@antunes_economic_2016]. More frightening is the increase in size and intensity of forest fires globally which has lead to more hectares of tree canopy loss than 20 years ago [@maccarthy_new_2022]. Specifically, in 2003 and 2005 Portugal saw their two largest years of burned area - combined nearly 700,000 hectares, and the most fires ever occurring in 2005 at roughly 35,000 wildfires [@noauthor_forest_2006]. Although wildfires are ignited by both human and natural factors, their fast detection and prediction are essential in limiting their deadly impacts.
+
+|       The current data is sourced from the UCI Machine Learning Repository. Forest Fires, created by @cortez_data_2007 focuses on predicting the size (in hectares) a forest fire will grow to in Montesinho Natural Park, Portugal. The data they and we are using is from January 2000 to December 2003. Such a prediction will help in resource allocation, deployment, and wildfire preparedness. This project aims to create a model that accurately predicts the size classification of a forest fire from low cost temporal, spatial, meteorological, and fire index measurements in Montesinho Natural Park, Portugal.
+
+|       The data science methods used will be exploratory data analysis with graphical visualizations of spatial and temporal data, as well as making classifications from supervised learning methods surrounding forest fires. This report will provide a tool to allow park staff to plan fire access routes, help to locate park amenities and equipment around peak fire season and locations, as well as convey public safety measures in Montesinho Natural Park, Portugal.
+
+# Methods
+
+|       Random Forest and Weighted K-Nearest Neighbour supervised classification will be conducted on the dataset following the binning of continuous fire sizes into small, medium, and large sizes. Small fires were categorized as having an area value equal to 0 representing an area burned smaller than 0.1 hectares. Medium class fires were values above from 0-10 hectares (0 meaning at least 0.1 area burned), and large fires being greater than 10 hectares.
+
+## Random Forest Classification
+
+|       The random forest (RF) algorithm is a supervised learning algorithm that extends the decision tree, which partitions the predictor space into defined regions making interpretation easily visible through a series of yes or no questions leading to classification. A RF however, is an ensemble collection of decision trees that takes a few modifications. Firstly, RF's continue to create unique partitions among the predictor space, but do so by taking a random sample of $m$ predictors at each split where $m \approx \sqrt p$. The random sampling of predictors helps to de-correlate the $B$ number of trees by giving less significant predictors a chance to partition the data. Second, the number of trees to create in the forest should be chosen at a point where the classification error rate has settled to a stable point, and lastly, the minimum terminal node size can be set.
+
+|       Although one might think that to create a tree a split shall occur where it creates the smallest mis-classification rate, indeed a small value is desired but for a measure of node purity known as the Gini index. It is at each split that the $m^{th}$ predictor with the largest reduction in node impurity is chosen to partition the data. Across $B$ trees there are just as many ways to reach a classification solution to each observation.
+
+|       At the end of creating the RF we will test it against a set of unseen data and measure its performance by the mis-classification rate in the training set. The mis-classification rate measures the actual classes of the observation against what the majority-rule based predicted class would be across the $B$ trees. Overall, the RF algorithm creates a series of decision trees in parallel using a random subset of predictors to create each split with a yes or no criterion condition and takes a majority voting based approach across all $B$ trees to classify an unseen observation via a previously trained model.
+
+### Tuning Parameter Selection
+
+|       The number of $B$ trees in the RF was kept at the default value (500) used by the `randomForest` function but found a leveling out of mis-classification rate around 300 trees and is used for the final model (Figure \ref{fig:ntrees}). No changes to the terminal node size were made in exploring the performance of the various models nor did we tune the node size. 
+
+## Weighted K-Nearest Neighbours
+
+|       The weighted k-nearest neighbours (W-KNN) is an extension of the KNN algorithm. In KNN classification, the algorithm maps the scaled data as $f$ and classifies a novel observation $x_0$ by the majority-rule class to its closest $N_K$ neighbours in $p$ dimensional space. 
+
+|       For example, we would like to estimate the distribution of forest fire sizes given the predictor space and classify an observation to the size category with the highest estimated probability. KNN finds the closest $K$ data points to the observation and estimates the probability for a class $j$ as the proportion of points whose true size equals $j$. The classifier then assigns the test observation to the size category with the highest probability from its closest $K$ neighbours.
+
+|       The weighted extension of this uses a kernel function to assign $K$ neighbour's weights based on their Euclidean distance to the query point. This means that if we were predicting a new observation point based on its nearest neighbours points more similar (ie., closer) to the new observation will hold more weight in the probability of assigning $x_0$ to class $j$.
+
+### Tuning Parameter Selection
+
+|       In terms of parameters that need to be adjusted for this algorithm the inverse distance weighted kernel was chosen to assign fires with similar features to a new observation higher weight than a neighbour further from the fire in question. Additionally, the function used (`trian.kknn`) performs leave-one-out cross-validation for determining the optimal number of neighbours to use in the classifier. A maximum value of $K$ was set at 10 for this procedure.
+
+
+<!-- |       Fire size presented in the dataset is heavily right skewed and noted by @cortez_data_2007, who, performed a log transformation on the data. However, in the current report we choose to classify the forest fires into three size classificationsl; small, medium, and large -->
+
+## Comparison Criteria
+
+|       The comparison criteria for the two classification methods will largely involve the mis-classification rate produced by the testing set after final hyper-parameter tuning (number of trees and node size in the RF model). Additional criterion will explore the sensitivity and specificity of classes within the models to determine for which class of fire the model is best at and most accurately predicting. The reason for this comparison method is that these algorithms are not max/minimization problems of quantitative outcomes - measures of standard error or $R^2$ cannot be calculated on classification problems.
+
+## Other Methods
+
+|       We note the presence of temporal and spatial data through the month & day and X & Y variables, respectively. The temporal data will be expanded to individual columns of each month/day through one-hot encoding (see Supplementary Material).
+
+# Results
+## Exploratory Data Analysis
+
+|       The data is made up of 517 observations across 12 variables and one response. Variables include two spatial variables `X` and `Y` to specify the location within the Natural Park, as well as the two temporal components; `month` and `day` of the week. Four meteorological measures are provided as temperature ($^{\circ}$Celsius, `temp`), relative humidity (%, `RH`), wind speed (km/h, `wind`), `rain` (mm/m^2^ in 30 minutes), and four fire index measurements; `FFMC`, `DMC`, `DC`, and `ISI`. The index measures are comprised of the meteorological data and represent various moisture, fuel, and rate of fire spread conditions at different soil depths and lags. All are predictors in the predicted response of the `area` of detected fire (in $ha$, hectares). It should be noted that the data came with values of 0 for area burned indicating areas smaller than 100m^2^.
+
+|       EDA finds large maxima for the response variable, area, which equals almost 1100 hectares burned for one fire, as well as the fire indexes of DMC and DC having values near 300 and 850 respectively. Over the calender months the temperature swing was between 2.2-33.3$^{\circ}$Celsius, winds were relatively weak topping out at 9.40 km/h, and the maximum rainfall seen in 30 minutes was 6.40 mm/m^2^. Anomalies were found in the response area and rainfall for the number of 0's present, but no rainfall is acceptable, as well as the area burned being equal to 0 as it was noted in the preceding paragraph. No missing values were found.
+
+|       Mostly weak correlations are seen with all variables, positive and negative, relative humidity and temperature had the largest negative association. FFMC, ISI, DMC, DC, and temp all had moderate associations individually with each other. Wind, rain, X and Y coordinate, and output area all had very weak to no correlation among most other variables (Supplementary Figure \ref{fig:correlationmatrix}). Outliers greater than 3 SD's are replaced with the 5^th^/95^th^ percentile accordingly (see Supplementary Material, Replace Outliers).
+
+|       A visual graphing of fire location within the natural park works to highlight the parks shape and density of fire locations, specifically around the x-coordinates of 4 and 6, and the y-coordinates 4 and 5 (Figure \ref{fig:spatialmap}).
+
+```{r spatialmap, fig.show='hold', fig.align='center', echo=FALSE, fig.cap="Frequency of fire sizes across locations in the park arranged in a 9 by 9 grid. $N = 517$, $n_{small} = 247$, $n_{medium} = 175$, $n_{large} = 95$.", out.width="80%", fig.width=4, fig.height=4}
+
+ff$size <- cut(ff$area, breaks = c(-Inf, 0, 10, Inf),
+               labels = c("small", "medium", "large"))
+
+ggplot(ff) +
+    geom_jitter(aes(X, Y, colour = size)) +
+    scale_colour_brewer(palette = "Set2") +
+    scale_x_discrete(position = "top") +
+    scale_y_discrete(limits = factor(9:1)) +
+    theme(panel.background = element_rect(fill = "white", color = "black"),
+          panel.grid.major = element_blank(), legend.position = "bottom") +
+    labs(colour = "Fire Size")
+
+```
+
+|       The most fires occurred in the months of August and September with 184 and 172 fires respectively, while the months of January, May, and November saw 2, 2, and 1 fire each over the course of data collection (Figure \ref{fig:firesbymonth}). Days of the week of fire occurrence were more evenly spread with a difference of 41 fires between the most and least frequent days of the week - Sunday and Wednesday, respectively. However, the top three days of the week for fires were at the weeks end; Friday through Sunday (Figure \ref{fig:firesbydow}). Total fire instances based on size category found 247 small fires, 175 medium, and 95 large fires.
+
+
+```{r firesbymonth, fig.show='hold', fig.align='center', echo=FALSE, fig.cap="Histogram of fire sizes by month $N = 517$, $n_{small} = 247$, $n_{medium} = 175$, $n_{large} = 95$.", out.width="80%"}
+
+ggplot(na.omit(ff), aes(month, fill = size)) +
+    geom_histogram(position = "dodge",  stat = "count") +
+    scale_fill_brewer(palette = "Set2") +
+    theme(legend.position = "bottom") +
+    labs(fill = "Fire Size")
+```
+
+```{r firesbydow, fig.show='hold', fig.align='center', echo=FALSE, fig.cap="Histogram of fire sizes by day of the week. $N = 517$, $n_{small} = 247$, $n_{medium} = 175$, $n_{large} = 95$.", out.width="80%"}
+
+ggplot(na.omit(ff), aes(day, fill = size)) +
+    geom_histogram(position = "dodge",  stat = "count") +
+    scale_fill_brewer(palette = "Set2") +
+    theme(legend.position = "bottom") +
+    labs(fill = "Fire Size")
+```
+
+|       Further exploration of mean fire index measures see increases in all scores during the months of June through October representing more fuel availability, drought, and favourable fire spread conditions where all maxima occur in August (Figure 4). Meteorological data is not so consistent. Mean temperature reaches its peak in the summer months as does rain, however, wind speed is relatively constant with the exception December and January having very high and very low winds speeds respectively. This wind trend is seen oppositely for relative humidity in December and January where December has low humidity and January high (Figure 5). This complimentary swing of high wind speed matching with low humidity in the absence of temperature or rain matches with the literature [@ravi_field-scale_2005].
+
+```{r fireeda, fig.height=5, echo=FALSE, fig.cap="Average monthly scores of fire index measures.", out.width="80%", fig.show='hold', fig.align='center'}
+mean.FFMC.month <- ff %>% group_by(month) %>% summarise(mean_FFMC = mean(FFMC))
+mean.FFMC.plot <- ggplot(mean.FFMC.month, aes(month, mean_FFMC, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("Index Score") + ggtitle("FFMC") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.DMC.month <- ff %>% group_by(month) %>% summarise(mean_DMC = mean(DMC))
+mean.DMC.plot <- ggplot(mean.DMC.month, aes(month, mean_DMC, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("Index Score") + ggtitle("DMC") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.DC.month <- ff %>% group_by(month) %>% summarise(mean_DC = mean(DC))
+mean.DC.plot <- ggplot(mean.DC.month, aes(month, mean_DC, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("Index Score") + ggtitle("DC") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.ISI.month <- ff %>% group_by(month) %>% summarise(mean_ISI = mean(ISI))
+mean.ISI.plot <- ggplot(mean.ISI.month, aes(month, mean_ISI, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("Index Scroe") + ggtitle("ISI") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.temp.month <- ff %>% group_by(month) %>% summarise(mean_temp = mean(temp))
+mean.temp.plot <- ggplot(mean.temp.month, aes(month, mean_temp, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("Degrees Celsius") + ggtitle("Temperature") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.rh.month <- ff %>% group_by(month) %>% summarise(mean_RH = mean(RH))
+mean.RH.plot <- ggplot(mean.rh.month, aes(month, mean_RH, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("%") + ggtitle("Relative Humidity") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.wind.month <- ff %>% group_by(month) %>% summarise(mean_wind = mean(wind))
+mean.wind.plot <- ggplot(mean.wind.month, aes(month, mean_wind, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("km/h") + ggtitle("Wind Speed") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+mean.rain.month <- ff %>% group_by(month) %>% summarise(mean_rain = mean(rain))
+mean.rain.plot <- ggplot(mean.rain.month, aes(month, mean_rain, group = 1)) +
+    geom_line() +
+    geom_point() +
+    ylab("mm/m^2/30 mins") + ggtitle("Rain") +
+    theme(plot.title = element_text(hjust = 0.5), 
+          axis.text.x = element_text(angle = 35, hjust = 1))
+
+ggpubr::ggarrange(mean.FFMC.plot, mean.DMC.plot, mean.DC.plot, mean.ISI.plot,
+                  ncol = 2, nrow = 2)
+```
+
+```{r weathereda, fig.height=5, echo=FALSE, fig.cap="Average monthly weather measures.", out.width="80%", fig.show='hold', fig.align='center'}
+ggpubr::ggarrange(mean.temp.plot, mean.RH.plot, mean.wind.plot, mean.rain.plot,
+                  ncol = 2, nrow = 2)
+```
+
+|       Variable selection will occur through methods identified by @cortez_data_2007 that chooses some of the different types of measurement variables; STFWI - spatial, temporal, and the four fire weather indexes, STM - spatial, temporal, and the four weather indexes, FWI - just the four fire index's, and finally, M - the four weather measurements. Additional investigation of the top variables of importance from a full model will be sought in an attempt to find a more accurate model.
+
+```{r include=FALSE}
+# X to one hot
+X_hot <- dummyVars(~ X, ff)
+X_hot <- data.frame(predict(X_hot, ff))
+ff <- cbind(ff, X_hot)
+
+# Y to one hot
+Y_hot <- dummyVars(~ Y, ff)
+Y_hot <- data.frame(predict(Y_hot, ff))
+ff <- cbind(ff, Y_hot)
+
+# month to one hot
+month_hot <- dummyVars(~ month, ff)
+month_hot <- data.frame(predict(month_hot, ff))
+ff <- cbind(ff, month_hot)
+
+# day to one hot
+day_hot <- dummyVars(~ day, ff)
+day_hot <- data.frame(predict(day_hot, ff))
+ff <- cbind(ff, day_hot)
+```
+
+## Interpretation
+
+|       Multiple models of the forest fire data were created - models included those group investigated by @cortez_data_2007 mentioned above.
+
+### Random Forest
+
+|       The results of applying the RF algorithm over the forest fire data with a test and train split of 80/20 had varying results over models investigated. Beginning with the full data set a mis-classification rate of 50.5% was found. Next, investigating the models of note from @cortez_data_2007 the STFWI model had a mis-classification rate of 48.5%, the STM model had the largest error rat at 55.3%, just the fire weather index model found a 47.6% mis-classification rate, and solely meteorological data in a RF model had 51.5% error (Figure 1}).
+
+|       After, conducting the classifiers over the various models we investigated the importance of variables as measured by the mean decrease in Gini index of the full model. We found that FFMC, DMC, DC, ISI, temp, RH, and wind were the most significant in their ability to increase node purity (Supplementary Figure \ref{fig:full_varimpt}). However, as the ISI measure is derived solely from wind, ISI was removed here. A new model containing the most significant predictors and the backward step wise method found an optimal model producing 43.7% mis-classifications on the predictors of temperature, relative humidity, FFMC, and DMC (Figure \ref{fig:error_rate}).
+
+|       Within the optimal RF model class-wise sensitivity was best in detecting small fires (0.735), worst for large fires (0.053), and in between at medium fires (0.600), opposite to the models specificity order where the worst at correctly identifying fires that were not belonging to a specific class were small fires with 0.519 accuracy and best with large fires at 0.964 and medium fires falling at 0.765 (Supplementary Table \ref{tab:sens_spec_tab}).
+
+|       Ultimately, the RF classifier was best able to predict forest fire size categories using temperature, relative humidity, FFMC, and DMC with an accuracy of 56.3%. Specifically, it is best at classifying small fires and over predicts the occurrence of large fires in the Portugal Natural Park.
+
+```{r include=FALSE}
+# Load required packages
+library(randomForest)
+library(caret)
+
+# Split data into training and testing sets
+set.seed(780)
+train_index <- createDataPartition(ff$size, p = 0.8, list = FALSE)
+train_data <- ff[train_index, ]
+test_data <- ff[-train_index, ]
+
+start_full <- Sys.time()
+rf_ff <- randomForest(size ~ . - area - X - Y - month - day,
+                      data = train_data, importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+full_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+full_time <- as.numeric(round(Sys.time() - start_full, 2))
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+
+# mis classification = 0.5048544
+# top variables of importance; temp, RH, DMC, DC, FFMC, wind, ISI
+# ISI is derived from wind, take out ISI
+```
+
+<!-- temp, RH, DMC, DC, FFMC, wind -->
+```{r include=FALSE}
+start_best <- Sys.time()
+set.seed(780)
+rf_ff <- randomForest(size ~ temp + RH + DMC + FFMC,
+                      data = train_data, importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+best_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+best_time <- as.numeric(round(Sys.time() - start_best, 2))
+
+rf_best_variables <- c("temp", "RH", "DMC", "FFMC")
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+
+# misclass improved to 0.4660194
+# misclass improved when DC removed, 0.4563107
+# misclass improved when wind then removed, 0.4368932
+```
+
+<!-- STFWI misclass  -->
+```{r include=FALSE}
+STFWI_start <- Sys.time()
+set.seed(780)
+rf_ff <- randomForest(size ~ . - X - Y - Y.8 - Y.9 - month - day - temp
+                      - RH - wind - rain - area,
+                      data = train_data, importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+STFWI_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+STFWI_time <- as.numeric(round(Sys.time() - STFWI_start, 2))
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+```
+
+<!-- STM misclass  -->
+```{r include=FALSE}
+STM_start <- Sys.time()
+set.seed(780)
+rf_ff <- randomForest(size ~ . - X - Y - Y.8 - Y.9 - month - day - FFMC - DMC -
+                          DC - ISI - area, data = train_data,
+                      importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+STM_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+STM_time <- as.numeric(round(Sys.time() - STM_start, 2))
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+```
+
+<!-- FWI misclass  -->
+```{r include=FALSE}
+FWI_start <- Sys.time()
+set.seed(780)
+rf_ff <- randomForest(size ~ FFMC + DMC + DC + ISI,
+                      data = train_data, importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+FWI_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+FWI_time <- as.numeric(round(Sys.time() - FWI_start, 2))
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+```
+
+<!-- M misclass  -->
+```{r include=FALSE}
+M_start <- Sys.time()
+set.seed(780)
+rf_ff <- randomForest(size ~ temp + RH + wind + rain,
+                      data = train_data, importance = TRUE, type = "class")
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+tab_RF <- table(test_data$size, ff_pred)
+M_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+M_time <- as.numeric(round(Sys.time() - M_start, 2))
+
+
+var_imp <- importance(rf_ff)
+
+var_imp_df <- data.frame(Variable = row.names(var_imp), Importance = var_imp[, "MeanDecreaseGini"])
+# ggplot(var_imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+#   geom_bar(stat = "identity", fill = "blue") +
+#   labs(x = "Variable", y = "Importance") +
+#   theme(axis.text.x = element_text(hjust = 1)) +
+#   coord_flip()
+```
+
+```{r echo=FALSE}
+model.name <- c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model")
+misclass.rate <- c(full_error, STFWI_error, STM_error, FWI_error, M_error, best_error)
+
+rf_model_times <- c(full_time, STFWI_time, STM_time, FWI_time, M_time, best_time)
+rf_time <- data.frame(model.name, rf_model_times)
+
+error <- data.frame(model.name, misclass.rate)
+error$model.name <- factor(error$model.name,
+          levels = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"))
+
+# ggplot(error, aes(model.name, misclass.rate, fill = factor(ifelse(model.name == "Best Model","Highlighted","Normal")))) +
+#     geom_bar(stat = "identity", width = 0.7) +
+#     geom_text(aes(label = misclass.rate), vjust = -0.3, size = 1.5) +
+#     scale_fill_manual(name = "model.name", values = c("red", "grey")) +
+#     theme(legend.position = "none", axis.title = element_text(size = 5), axis.text = element_text(size = 5))
+
+# data.frame(model.name, misclass.rate) %>% 
+#     kable(caption = "Misclassification Rate of Different RF Models",
+#       col.names = c("Model", "Rate")) %>%
+#     kable_styling("bordered")
+```
+
+### Weighted-KNN
+
+|       After W-KNN application on Montesinho Natural Park forest fire data with an 80/20 train and test split with the same initial four models, plus one of the full model, found that the model of the four fire index measures was once again the best performing model with 50.5% of classifications mis-classified. The worst model was mis-classifying 61.2% of the time using the spatial, temporal, and meteorological data, followed by the spatial, temporal, and fire index model with 57.3% errors, then the meteorological model (56.3%). A full model of W-KNN performed intermediately among the four other investigations (Figure \ref{fig:error_rate}).
+
+|       As the KNN classifier does not provide an intuitive way to gather variable importance, the same variables of most importance from the RF classifier were investigated in a backwards step wise method after the removal of ISI (previously mentioned is derived from wind). The new model was nearly 3% better accuracy than the next closest nearest neighbour model and included the DC, temperature, and relative humidity variables (Figure \ref{fig:error_rate}).
+
+|       The optimal classifier scored small and medium size fires on sensitivity with scores of 0.714 and 0.571, respectively, while large fires scored low at 0.053. This means that about 95% of all predicted observations for large fires were false negatives. Specificity rankings followed the same but opposite order over a larger range. Large fires scored 0.964 in finding true non-fires of its class, medium fires had 0.765 specificity, and small the lowest at 0.519 (Supplementary Table Supplementary Table \ref{tab:sens_spec_tab}).
+
+|       Lastly, the W-KNN algorithm is best at identifying small fires with 52.8% sensitivity and over estimates the occurrence large fires. Overall, the classifier is accurate on 52.4% of new forest fires in Monteshino Natural Park.
+<!-- full model misclass  -->
+```{r include=FALSE}
+library(kknn)
+
+# same split from above
+# train_data
+# test_data
+
+x <- train_data[, c(5:12, 15:49)]
+y <- train_data[, 14]
+
+full_start <- Sys.time()
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - area,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+full_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+full_time <- as.numeric(round(Sys.time() - full_start, 2))
+```
+
+<!-- temp, RH, DMC, DC, FFMC, wind -->
+```{r include=FALSE}
+best_start <- Sys.time()
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ temp + RH + DC,
+                            data = train_data, kmax = 20, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+best_k_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+best_time <- as.numeric(round(Sys.time() - best_start, 2))
+
+wknn_best_variables <- c("temp", "RH", "DC")
+```
+
+<!-- STFWI 0.5534 -->
+```{r include=FALSE}
+STFWI_start <- Sys.time()
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - temp
+                               - RH - wind - rain - area,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+STFWI_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+STFWI_time <- as.numeric(round(Sys.time() - STFWI_start, 2))
+```
+
+<!-- STM 0.6019 -->
+```{r include=FALSE}
+STM_start <- Sys.time()
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - FFMC
+                               - DMC - DC - ISI - area,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+STM_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+STM_time <- as.numeric(round(Sys.time() - STM_start, 2))
+```
+
+<!-- FWI 0.6019 -->
+```{r include=FALSE}
+FWI_start <- Sys.time()
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ FFMC + DMC + DC + ISI,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+FWI_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+FWI_time <- as.numeric(round(Sys.time() - FWI_start, 2))
+```
+
+<!-- M 0.5631 -->
+```{r include=FALSE}
+M_start <- Sys.time()
+
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ temp + RH + wind + rain,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+tab_wknn <- table(predict(weight_knn_model, test_data), test_data$size)
+M_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4)
+M_time <- as.numeric(round(Sys.time() - M_start, 2))
+```
+
+```{r error_rate, fig.show='hold', fig.align='center', echo=FALSE, out.width="80%",fig.cap="MisClassification Rate of Models from RF (pink) and W-KNN (blue). The best RF model contained temp, RH, DMC, and FFMC, while the best W-KNN model used the temp, RH, and DC variables."}
+
+mc_rate_knn <- c(full_e_knn, STFWI_e_knn, STM_e_knn, FWI_e_knn, M_e_knn, best_k_knn)
+knn_model_times <- c(full_time, STFWI_time, STM_time, FWI_time, M_time, best_time)
+
+error_new <- data.frame(
+    model_name = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model",
+                   "Full Model", "STFWI", "STM", "FWI", "M", "Best Model"),
+    mc_rate = c(round(misclass.rate, 2), round(mc_rate_knn, 2)),
+    algorithm = c("Random Forest", "Random Forest", "Random Forest",
+                  "Random Forest", "Random Forest", "Random Forest",
+                  "Weighted-KNN", "Weighted-KNN", "Weighted-KNN",
+                  "Weighted-KNN", "Weighted-KNN", "Weighted-KNN"))
+
+times_new <- data.frame(
+    model_name = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model",
+                   "Full Model", "STFWI", "STM", "FWI", "M", "Best Model"),
+    model_times = c(rf_model_times, knn_model_times),
+    algorithm = c("Random Forest", "Random Forest", "Random Forest",
+                  "Random Forest", "Random Forest", "Random Forest",
+                  "Weighted-KNN", "Weighted-KNN", "Weighted-KNN",
+                  "Weighted-KNN", "Weighted-KNN", "Weighted-KNN"))
+
+error_new$model_name <- factor(error_new$model_name,
+          levels = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"))
+
+ggplot(error_new, aes(model_name, mc_rate, fill = algorithm)) +
+    geom_bar(stat = "identity", width = .75, position = "dodge") +
+    geom_text(aes(label = mc_rate), vjust = -0.2,
+              position = position_dodge(width = 0.75)) +
+    theme(legend.position = "none")
+```
+
+# Conclusion
+## Discussion
+
+|       Ultimately, after applying the RF and W-KNN algorithms to forest fire data from Monteshino Natural Park, Portugal two variables of note are strongly associated not only with each other, but also with the classification size of a forest fire. Temperature and relative humidity have an inverse relationships with each other where as the temperature rises the relative humidity falls - this is consistent with summer weather conditions. These two variables are also contained in both the Random Forest and Weighted K-Nearest Neighbour models - this provides valuable insights to the Natural Park team that higher temperatures and lower humidity are valuable resources in predicting forest fire size category.
+
+|       Additionally, the Monteshino Natural park team can be confident in their identifications of non-large fires being correctly identified as non-large about 96.4% of the time. This means that the team can likely conclude that a fire will not be large but rather of small or medium size producing low numbers of false positives for large fires (Supplementary Table \ref{tab:sens_spec_tab}).
+
+|       Comparisons of the two classifiers find that both models containing spatial, temporal, and meteorological data have the highest mis-classification rate, and that the next best model to the one identified for both classifiers was the one containing solely fire index measures, as seen in Figure \ref{fig:error_rate}. Another comparison is that RF is a ensemble learning method, wheres W-KNN is a lazy learning algorithm. This means that W-KNN learns from those points nearest itself (another observation) and must store the weighted distance between observations before being able to predict a novel query. In comparison, RF learns the dataset as a whole rather than in the instance-based KNN and can demonstrate its predictive accuracy through one function call.
+
+## Analytical Comments & Further Work
+
+|       One analytical challenge and limitation of this work was in finding the correct encoding scheme for the spatial, and temporally ordered data of X, Y, month, and day. Specifically, the spatial park location variables were only encoded with one-hot encoding because it kept the overall dimensions of the data frame much smaller than would have one-hot encoding for all unique locations pairs; 18 additional columns instead of 81 additional columns (9 x 9). Further work could refine the encoding schemes in order to be able to calculate specific models for each spatial coordinate of the park or take into account the park landscape and assign varying weights to parks features that help or hinder forest fire development.
+
+|       The computational cost of RF and W-KNN is displayed in Table \ref{tab:comp_times} that shows the average time taken to run each algorithm. Running the RF algorithm took on average 4 times longer to run than the W-KNN function, likely due to the comparison noted earlier that a random forest learns in an ensemble method across the number of trees made. More decision trees will increase the computational time, whereas W-KNN simply stores the distances between points without any classifications being made.
+
+|       Future work could improve the interpretability of the results here through the creation of a Shiny App that park staff could use to input current weather and fire index measures and see the size of fire that could potentially grow. This could help with conveying messaging to the public by educating them on the fire index measures and how they represent fuel availability, drought, and ability of fire spread. Doing so could highlight areas of concern within the park. In terms of algorithm interpretability, both random forest and W-KNN algorithms are black box type methods which make it difficult to examine how exactly one predictor contributes to an outcome over another.
+
+|       Lastly, all work conducted in this piece can bve reproduced based on the seed in creating data partitions and running the RF and W-KNN algorithms, however, not seeding a seed would result in completely different testing and training sets, cross-validations, $K$ values, and overall results. Different seeds could potentially alter the order of models, variables of importance, and the interpretations of predicting forest fire size in Monteshino Natural Park, Portugal.
+
+\newpage
+# Supplementary Material
+
+## Data Preparation
+
+Load libraries.
+```{r include=FALSE}
+pacman::p_load(dplyr, readr, magrittr, ggplot2, caret, psych, xray, corrplot,
+               randomforest, kknn)
+```
+
+Data from UCI Repository.
+```{r}
+UCI <- "https://archive.ics.uci.edu/ml/machine-learning-databases/"
+index_file <- "forest-fires/forestfires.csv"
+download.file(paste0(UCI, index_file), destfile = "forest_fires.csv")
+ff <- read.csv("forest_fires.csv")
+```
+Covert months of the year, days of the week, and X and Y coordinates to factors for EDA.
+```{r}
+ff$month <- factor(ff$month, c("jan", "feb", "mar", "apr", "may", "jun",
+                                  "jul", "aug", "sep", "oct", "nov", "dec"))
+ff$day <- factor(ff$day,
+                 levels = c("mon", "tue", "wed", "thu", "fri", "sat", "sun"))
+ff$X <- as.factor(ff$X)
+ff$Y <- as.factor(ff$Y)
+```
+
+**Replace Outliers** greater than 3 SD's from the mean with the $5^{th}$ and $59^{th}$ percentile
+```{r}
+replaceOutliers <- function(x){
+    z_score <- scale(x)   # z-score for each obs
+    z_above <- z_score > 3  # outlier if z > 3
+    z_below <- z_score < -3    # outlier if z < -3
+    
+    if (length(z_above) > 0) { 
+        x[z_above] <- quantile(x, 0.95)}   # replace with 95%ile if z > 3
+    if (length(z_below) > 0) { 
+        x[z_below] <- quantile(x, 0.05)}  # replace with 5%ile if z < -3
+    return(x)}
+
+ff[, c(5:13)] <- sapply(ff[, c(5:13)], replaceOutliers) %>% as.data.frame()
+```
+
+Partition the burned area into small, medium, and large classes.
+```{r}
+ff$size <- cut(ff$area, breaks = c(-Inf, 0, 10, Inf),
+               labels = c("small", "medium", "large"))
+```
+
+## Exploratory Data Analysis
+**Data Structure** and the first 5 rows of the data are visualized.
+```{r echo=FALSE}
+head(ff)
+```
+
+**Data Summary** 
+```{r echo=FALSE}
+describe(ff[1:13], skew = F) # all variables of interest and response
+```
+
+**Anomalies**  
+Problem variables are printed out.
+```{r echo=FALSE}
+ff_anomalies <- anomalies(ff[1:14])
+ff_anomalies$problem_variables
+```
+
+**Missing Values**
+```{r}
+sum(is.na(ff[1:14])) # number of missing values below
+```
+
+**Correlation / Association Matrix**
+```{r echo=FALSE}
+ff$X <- as.numeric(ff$X)
+ff$Y <- as.numeric(ff$Y)
+cor_matrix <- cor(ff[c(1, 2, 5:13)])
+ff$X <- as.factor(ff$X)
+ff$Y <- as.factor(ff$Y)
+```
+
+```{r correlationmatrix, echo=FALSE, fig.align="center", fig.cap="Correlation/Association Matrix of Forest Fire Data.", out.width="65%"}
+corrplot(cor_matrix, type = "upper", order = "hclust",
+         tl.col = "black",tl.srt = 45)
+```
+
+## One-Hot Encoding
+**Convert `Month` and `Day` with One-Hot Encoding**  
+|       The month and day of the week have now been converted to individual columns for each month and day, where the presence of a 1 in a column indicates that the fire took place in that respective month/on that specific day of the week. The new dimensions of the data frame are now 517 by 49.
+```{r}
+# X to one hot
+X_hot <- dummyVars(~ X, ff)
+X_hot <- data.frame(predict(X_hot, ff))
+ff <- cbind(ff, X_hot)
+
+# Y to one hot
+Y_hot <- dummyVars(~ Y, ff)
+Y_hot <- data.frame(predict(Y_hot, ff))
+ff <- cbind(ff, Y_hot)
+
+# month to one hot
+month_hot <- dummyVars(~ month, ff)
+month_hot <- data.frame(predict(month_hot, ff))
+ff <- cbind(ff, month_hot)
+
+# day to one hot
+day_hot <- dummyVars(~ day, ff)
+day_hot <- data.frame(predict(day_hot, ff))
+ff <- cbind(ff, day_hot)
+
+#new dimensions
+dim(ff)
+```
+
+## Random Forest Implementation
+
+|       The `caret` package partitioned the data in an 80/20 training and test split where a training index was used for to create the specific sets.
+```{r}
+# Split data into training and testing sets
+set.seed(780)
+train_index <- createDataPartition(ff$size, p = 0.8, list = FALSE)
+train_data <- ff[train_index, ]
+test_data <- ff[-train_index, ]
+```
+
+|       Implementation of the `randomForest` algorithm occurred over the various models with a predicted fire class produced on the testing set, a confusion matrix, mis-classification rate, and variable importances visualized in the full model. Additionally the time of computation was recorded.
+
+**Full Model** computation, confusion matrix, and variable importance plot.
+```{r}
+set.seed(780)
+start_full <- Sys.time()
+rf_ff <- randomForest(size ~ . - area - X - Y - month - day,
+                      data = train_data, importance = TRUE, type = "class")
+full_time <- as.numeric(round(Sys.time() - start_full, 2))
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+full_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4)
+
+var_imp <- importance(rf_ff)
+var_imp_df <- data.frame(Variable = row.names(var_imp),
+                         Importance = var_imp[, "MeanDecreaseGini"])
+
+confusionMatrix(ff_pred, test_data$size)$table
+```
+
+```{r full_varimpt, echo=FALSE, fig.align='center', fig.cap="Variable Importance in the Full Model of Random Forest. After the first seven variables the importance drops substantially and those variables not considered", fig.show='hold', out.width="80%"}
+ggplot(var_imp_df[1:8,], aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Variable", y = "Importance") +
+  theme(axis.text.x = element_text(hjust = 1)) +
+  coord_flip()
+```
+
+**STFWI Model** formula and confusion matrix.  
+Only the confusion matrix output and the formula used are visualized for the remaining RF models where the same code frameworks were used.
+
+```{r eval=FALSE}
+set.seed(780)
+rf_ff <- randomForest(size ~ . - X - Y - month - day - temp - RH - wind - rain -
+                          area, data = train_data, importance = TRUE,
+                      type = "class")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+STFWI_start <- Sys.time()
+rf_ff <- randomForest(size ~ . - X - Y - month - day - temp - RH - wind - rain -
+                          area, data = train_data, importance = TRUE,
+                      type = "class")
+STFWI_time <- as.numeric(round(Sys.time() - STFWI_start, 2)) # time
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+STFWI_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(ff_pred, test_data$size)$table
+```
+
+**STM Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+rf_ff <- randomForest(size ~ . - X - Y - month - day - FFMC - DMC - DC - ISI -
+                          area, data = train_data, importance = TRUE,
+                      type = "class")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+STM_start <- Sys.time()
+rf_ff <- randomForest(size ~ . - X - Y - month - day - FFMC - DMC - DC - ISI -
+                          area, data = train_data, importance = TRUE,
+                      type = "class")
+STM_time <- as.numeric(round(Sys.time() - STM_start, 2)) # time
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+STM_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(ff_pred, test_data$size)$table
+```
+
+**FWI Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+rf_ff <- randomForest(size ~ FFMC + DMC + DC + ISI,
+                      data = train_data, importance = TRUE, type = "class")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+FWI_start <- Sys.time()
+rf_ff <- randomForest(size ~ FFMC + DMC + DC + ISI,
+                      data = train_data, importance = TRUE, type = "class")
+FWI_time <- as.numeric(round(Sys.time() - FWI_start, 2)) # time
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+FWI_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(ff_pred, test_data$size)$table
+```
+
+**M Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+rf_ff <- randomForest(size ~ temp + RH + wind + rain,
+                      data = train_data, importance = TRUE, type = "class")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+M_start <- Sys.time()
+rf_ff <- randomForest(size ~ temp + RH + wind + rain,
+                      data = train_data, importance = TRUE, type = "class")
+M_time <- as.numeric(round(Sys.time() - M_start, 2)) # time
+
+ff_pred <- predict(rf_ff, test_data, type = "class")
+M_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(ff_pred, test_data$size)$table
+```
+
+**Best Model** formula and confusion matrix found after using the top 5 variables of importance from the full model in a manual stepwise iteration.
+```{r eval=FALSE}
+set.seed(780)
+rf_ff <- randomForest(size ~ temp + RH + DMC + FFMC,
+                      data = train_data, importance = TRUE, type = "class")
+```
+
+```{r ntrees, echo=FALSE, fig.cap="OOB Error Rate for the Best RF Model. Leveling out of error rate ocurrs around 300 trees ($B = 300$).", fig.align='center', out.width="80%", fig.show='hold'}
+set.seed(780)
+rf_ff <- randomForest(size ~ temp + RH + DMC + FFMC,
+                      data = train_data, importance = TRUE, type = "class")
+plot(rf_ff$err.rate[,1])
+```
+
+
+```{r echo=FALSE}
+set.seed(780)
+start_best <- Sys.time()
+rf_ff <- randomForest(size ~ temp + RH + DMC + FFMC, data = train_data,
+                      ntree = 300, importance = TRUE, type = "class")
+best_time <- as.numeric(round(Sys.time() - start_best, 2)) # time
+
+ff_pred <- predict(rf_ff, test_data, type = "class") 
+best_error <- round(1 - sum(diag(tab_RF))/sum(tab_RF), 4) # error
+
+best_rf_confusion <- confusionMatrix(ff_pred, test_data$size)
+```
+
+```{r echo=FALSE}
+best_rf_confusion$table
+```
+
+
+**Creation of Dataframes of Model Misclassification Rates and Computation Times for RF**
+```{r}
+rf_best_variables <- c("temp", "RH", "DMC", "FFMC")
+
+model.name <- c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model")
+misclass.rate <- c(full_error, STFWI_error, STM_error, FWI_error, M_error,
+                   best_error)
+
+rf_model_times <- c(full_time, STFWI_time, STM_time, FWI_time, M_time,
+                    best_time)
+rf_time <- data.frame(model.name, rf_model_times)
+
+error <- data.frame(model.name, misclass.rate)
+error$model.name <- factor(error$model.name,
+          levels = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"))
+```
+
+## Weighted-KNN Implementation
+|       The `kknn` package was used to implement the algorithm after creation of dataframes of predictor and the explanatory variable using cross-validation for a max $K = 10$ using Euclidean distance and the inverse distance weighted kernel.
+```{r}
+x <- train_data[, c(5:12, 15:49)]
+y <- train_data[, 14]
+```
+
+**Full Model** complete computation and confusion matrix is produced.
+```{r}
+set.seed(780)
+full_start <- Sys.time()
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - area,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+full_time <- as.numeric(round(Sys.time() - full_start, 2)) # time
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+full_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(wknn_pred, test_data$size)$table
+```
+
+**STFWI Model** formula and confusion matrix. Going further for W-KNN only the formula and confusion matrices are produced below.
+```{r eval=FALSE}
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - temp  - RH -
+                                   wind - rain - area, data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+STFWI_start <- Sys.time()
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - temp - RH - wind
+                               - rain - area, data = train_data, kmax = 10,
+                               distance = 2, kernel = "inv")
+STFWI_time <- as.numeric(round(Sys.time() - STFWI_start, 2)) # time
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+STFWI_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(wknn_pred, test_data$size)$table
+```
+
+**STM Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - FFMC - DMC -
+                                   DC - ISI - area , data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+STM_start <- Sys.time()
+weight_knn_model <- train.kknn(size ~ . - X - Y - month - day - FFMC - DMC -
+                                   DC - ISI - area , data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+STM_time <- as.numeric(round(Sys.time() - STM_start, 2)) # time
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+STM_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(wknn_pred, test_data$size)$table
+```
+
+**FWI Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ FFMC + DMC + DC + ISI, data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+FWI_start <- Sys.time()
+weight_knn_model <- train.kknn(size ~ FFMC + DMC + DC + ISI, data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+FWI_time <- as.numeric(round(Sys.time() - FWI_start, 2)) # time
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+FWI_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(wknn_pred, test_data$size)$table
+```
+
+**M Model** formula and confusion matrix.
+```{r eval=FALSE}
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ temp + RH + wind + rain,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+M_start <- Sys.time()
+
+weight_knn_model <- train.kknn(size ~ temp + RH + wind + rain,
+                            data = train_data, kmax = 10, distance = 2, 
+                            kernel = "inv")
+M_time <- as.numeric(round(Sys.time() - M_start, 2)) # time 
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+M_e_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+confusionMatrix(wknn_pred, test_data$size)$table
+```
+
+**Best Model** formula and confusion matrix found after using the same top 5 variables of importance from the random forest full model in a manual stepwise iteration.
+```{r eval=FALSE}
+set.seed(780)
+weight_knn_model <- train.kknn(size ~ temp + RH + DC, data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+```
+
+```{r echo=FALSE}
+set.seed(780)
+best_start <- Sys.time()
+weight_knn_model <- train.kknn(size ~ temp + RH + DC, data = train_data,
+                               kmax = 10, distance = 2, kernel = "inv")
+best_time <- as.numeric(round(Sys.time() - best_start, 2)) # time
+
+wknn_pred <- predict(weight_knn_model, test_data) 
+best_k_knn <- round(1 - sum(diag(tab_wknn))/sum(tab_wknn), 4) # error
+```
+
+```{r echo=FALSE}
+print(paste("The best value of k in the optimal performing model is:",
+            weight_knn_model$best.parameters$k))
+
+best_knn_confusion <- confusionMatrix(wknn_pred, test_data$size)
+best_knn_confusion$table
+```
+
+**Creation of Dataframes of Model Misclassification Rates and Computation Times for RF & W-KNN**
+```{r}
+wknn_best_variables <- c("temp", "RH", "DC")
+
+mc_rate_knn <- c(full_e_knn, STFWI_e_knn, STM_e_knn, FWI_e_knn, M_e_knn,
+                 best_k_knn)
+knn_model_times <- c(full_time, STFWI_time, STM_time, FWI_time, M_time,
+                     best_time)
+
+error_new <- data.frame(
+    model_name = (rep(c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"),
+                      2)),
+    mc_rate = c(round(misclass.rate, 2), round(mc_rate_knn, 2)),
+    algorithm = c(rep("Random Forest", 6), rep("Weighted-KNN", 6)))
+
+times_new <- data.frame(
+    model_name = (rep(c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"),
+                      2)),
+    model_times = c(rf_model_times, knn_model_times),
+    algorithm = c(rep("Random Forest", 6), rep("Weighted-KNN", 6)))
+
+error_new$model_name <- factor(error_new$model_name,
+          levels = c("Full Model", "STFWI", "STM", "FWI", "M", "Best Model"))
+```
+
+## Model Performance
+
+```{r eval=FALSE, include=FALSE}
+ggplot(times_new, aes(model_name, model_times, fill = algorithm)) +
+    geom_bar(stat = "identity", width = 0.7, position = "dodge") +
+    geom_text(aes(label = model_times), vjust = -0.3,
+              position = position_dodge(width = 0.7)) +
+    theme(legend.position = "none")
+```
+
+**Sensitivity & Specificity**
+```{r sens_spec_tab, echo=FALSE, fig.show='hold'}
+fire.size <- rep(c("Small", "Medium", "Large"), 2)
+sensitivity <- c(as.numeric(best_rf_confusion$byClass[,"Sensitivity"]),
+                 as.numeric(best_knn_confusion$byClass[,"Sensitivity"]))
+specificity <- as.data.frame(as.numeric(best_rf_confusion$byClass[,"Specificity"]),
+                 as.numeric(best_knn_confusion$byClass[,"Specificity"]))
+model_type <- c(rep("Random Forest", 3), rep("Weighted-KNN", 3))
+
+df <- data.frame(model_type, fire.size,
+                 round(sensitivity, 3), round(specificity, 3))
+
+kableExtra::kable(df, caption = "Performance Scores of the Best Models",
+                  col.names = c("Model Type", "Fire Size",
+                                "Sensitivity", "Specificity")) %>% 
+    kableExtra::kable_styling(latex_options = "HOLD_position")
+```
+
+**Computational Times**
+```{r comp_times, echo=FALSE, fig.show='hold'}
+algorithm_means <- aggregate(model_times ~ algorithm, times_new, mean)
+algorithm_means$model_times <- round(algorithm_means$model_times, 2)
+
+kableExtra::kable(algorithm_means, caption = "Average Computation Time of All Models",
+                  col.names = c("Algorithm", "Time (s)")) %>% 
+    kableExtra::kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+## References
